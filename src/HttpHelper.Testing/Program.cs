@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -6,32 +7,32 @@ using System.Net.Http.Headers;
 using System.Threading.Tasks;
 
 namespace JoshuaKearney.HttpHelper.Testing {
+    class MessageResult {
+        public string Html { get; set; }
+        public int Code { get; set; }
+    }
+
     class Program {
         static void Main(string[] args) {
             Run().GetAwaiter().GetResult();
         }
 
         static async Task Run() {
-            string url = "http://www.youtube.com";
+            HttpClient client = new HttpClient();
+            HttpResponseMessage response = await client.GetAsync("https://github.com");
 
-            HttpClient client = new HttpClient(new HttpClientHandler() {
-                AutomaticDecompression = DecompressionMethods.None
-            });
+            var reader = new HttpResponseReader<MessageResult>();
 
-            client.BaseAddress = new Uri(url);
-            client.DefaultRequestHeaders.TryAddWithoutValidation("accept-encoding", "gzip, deflate");
+            reader.UseBrotliDecompression();
+            reader.EnsureHtmlContent((x, result) => result.Html = x);
+            reader.UseResponseCode((x, result) => result.Code = (int)x);
 
-            var response = await client.GetAsync(url);
+            MessageResult res = new MessageResult();
+            if (await reader.TryReadMessageAsync(response, res)) {
+                Console.WriteLine(res.Html);
+                Console.WriteLine("Status code: " + res.Code);
+            }
 
-            HttpResponseReader reader = new HttpResponseReader();
-
-            //reader.UseBrotliDecompression();
-            reader.UseDeflateDecompression();
-            reader.UseGzipDecompression();
-
-            reader.EnsureHtmlContent(html => Console.WriteLine(html));
-
-            Console.WriteLine(await reader.TryReadMessageAsync(response));
             Console.Read();
         }        
     }

@@ -16,8 +16,8 @@ namespace JoshuaKearney.HttpHelper {
     /// <summary>
     ///     A utility class that aids with the reading and processing of a recieved <see cref="HttpResponseMessage"/>
     /// </summary>
-    public class HttpResponseReader {
-        private Queue<Func<HttpResponseMessage, Task<bool>>> funcs = new Queue<Func<HttpResponseMessage, Task<bool>>>();
+    public class HttpResponseReader<T> where T : class {
+        private Queue<Func<HttpResponseMessage, T, Task<bool>>> funcs = new Queue<Func<HttpResponseMessage, T, Task<bool>>>();
 
         // Headers
         /// <summary>
@@ -30,14 +30,14 @@ namespace JoshuaKearney.HttpHelper {
         ///     determines if message reading should continue
         /// </param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader EnsureHeader(string headerName, Func<IEnumerable<string>, bool> func) {
-            this.funcs.Enqueue(message => {
+        public HttpResponseReader<T> EnsureHeader(string headerName, Func<IEnumerable<string>, T, bool> func) {
+            this.funcs.Enqueue((message, result) => {
                 if (message.Headers.TryGetValues(headerName, out var values)) {
-                    return Task.FromResult(func(values));
+                    return Task.FromResult(func(values, result));
                 }
                 else {
                     if (message.Content.Headers.TryGetValues(headerName, out values)) {
-                        return Task.FromResult(func(values));
+                        return Task.FromResult(func(values, result));
                     }
                     else {
                         return Task.FromResult(false);
@@ -55,9 +55,9 @@ namespace JoshuaKearney.HttpHelper {
         /// <param name="headerName">The name of the header</param>
         /// <param name="action">An action that is called if the header is successfully found</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader EnsureHeader(string headerName, Action<IEnumerable<string>> action) {
-            return this.EnsureHeader(headerName, values => {
-                action(values);
+        public HttpResponseReader<T> EnsureHeader(string headerName, Action<IEnumerable<string>, T> action) {
+            return this.EnsureHeader(headerName, (values, result) => {
+                action(values ,result);
                 return true;
             });
         }
@@ -69,14 +69,14 @@ namespace JoshuaKearney.HttpHelper {
         /// <param name="headerName">The name of the header</param>
         /// <param name="action">An action that is called if the header is successfully found</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader UseHeader(string headerName, Action<IEnumerable<string>> action) {
-            this.funcs.Enqueue(message => {
+        public HttpResponseReader<T> UseHeader(string headerName, Action<IEnumerable<string>, T> action) {
+            this.funcs.Enqueue((message, result) => {
                 if (message.Headers.TryGetValues(headerName, out var values)) {
-                    action(values);
+                    action(values, result);
                 }
                 else {
                     if (message.Content.Headers.TryGetValues(headerName, out values)) {
-                        action(values);
+                        action(values, result);
                     }                    
                 }
 
@@ -94,8 +94,8 @@ namespace JoshuaKearney.HttpHelper {
         /// </summary>
         /// <param name="type">The content type to match</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader EnsureContentType(MediaType type) {
-            this.funcs.Enqueue(message => {
+        public HttpResponseReader<T> EnsureContentType(MediaType type) {
+            this.funcs.Enqueue((message, _) => {
                 return Task.FromResult(MediaType.FromHeaderValue(message.Content.Headers.ContentType).IsMoreSpecific(type));
             });
 
@@ -107,9 +107,9 @@ namespace JoshuaKearney.HttpHelper {
         /// </summary>
         /// <param name="action">An action that is invoked with the current message's content type</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader UseContentType(Action<MediaType> action) {
-            this.funcs.Enqueue(message => {
-                action(MediaType.FromHeaderValue(message.Content.Headers.ContentType));
+        public HttpResponseReader<T> UseContentType(Action<MediaType, T> action) {
+            this.funcs.Enqueue((message, result) => {
+                action(MediaType.FromHeaderValue(message.Content.Headers.ContentType), result);
 
                 return Task.FromResult(true);
             });
@@ -122,13 +122,13 @@ namespace JoshuaKearney.HttpHelper {
         /// </summary>
         /// <param name="action">An action that is invoked with the HTML content</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader EnsureHtmlContent(Action<string> action) {
+        public HttpResponseReader<T> EnsureHtmlContent(Action<string, T> action) {
             this.EnsureContentType(MediaType.Html);
 
-            this.funcs.Enqueue(message => {
+            this.funcs.Enqueue((message, result) => {
                 string str = message.Content.ReadAsStringAsync().GetAwaiter().GetResult();
 
-                action(str);
+                action(str, result);
                 return Task.FromResult(true);
             });
 
@@ -140,15 +140,15 @@ namespace JoshuaKearney.HttpHelper {
         /// </summary>
         /// <param name="action">An action that is invoked with the Json content</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader EnsureJsonContent(Action<JObject> action) {
+        public HttpResponseReader<T> EnsureJsonContent(Action<JObject, T> action) {
             this.EnsureContentType(MediaType.Json);
 
-            this.funcs.Enqueue(async message => {
+            this.funcs.Enqueue(async (message, result) => {
                 string str = await message.Content.ReadAsStringAsync();
 
                 try {
                     var json = JObject.Parse(str);
-                    action(json);
+                    action(json, result);
                     return true;
                 }
                 catch {
@@ -166,15 +166,15 @@ namespace JoshuaKearney.HttpHelper {
         /// <param name="action">An action that is invoked with the HTML content</param>
         /// <typeparam name="T">The type that is represented by the json content</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader EnsureJsonContent<T>(Action<T> action) {
+        public HttpResponseReader<T> EnsureJsonContent<TJson>(Action<TJson, T> action) {
             this.EnsureContentType(MediaType.Json);
 
-            this.funcs.Enqueue(async message => {
+            this.funcs.Enqueue(async (message, result) => {
                 string str = await message.Content.ReadAsStringAsync();
 
                 try {
-                    var json = JsonConvert.DeserializeObject<T>(str);
-                    action(json);
+                    var json = JsonConvert.DeserializeObject<TJson>(str);
+                    action(json, result);
                     return true;
                 }
                 catch {
@@ -190,15 +190,15 @@ namespace JoshuaKearney.HttpHelper {
         /// </summary>
         /// <param name="action">An action that is invoked with the plain text content</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader EnsureTextContent(Action<string> action) {
-            this.funcs.Enqueue(message => {
+        public HttpResponseReader<T> EnsureTextContent(Action<string, T> action) {
+            this.funcs.Enqueue((message, _) => {
                 var media = MediaType.FromHeaderValue(message.Content.Headers.ContentType);
                 return Task.FromResult(media.Type.ToLower() == "text");
             });
 
-            this.funcs.Enqueue(async message => {
+            this.funcs.Enqueue(async (message, result) => {
                 string str = await message.Content.ReadAsStringAsync();
-                action(str);
+                action(str, result);
                 return true;
             });
 
@@ -210,18 +210,18 @@ namespace JoshuaKearney.HttpHelper {
         /// </summary>
         /// <param name="action">An action that is invoked with the Xml content</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader EnsureXmlContent(Action<XDocument> action) {
-            this.funcs.Enqueue(message => {
+        public HttpResponseReader<T> EnsureXmlContent(Action<XDocument, T> action) {
+            this.funcs.Enqueue((message, _) => {
                 var media = MediaType.FromHeaderValue(message.Content.Headers.ContentType);
                 return Task.FromResult(media.SubType.ToLower() == "xml");
             });
 
-            this.funcs.Enqueue(async message => {
+            this.funcs.Enqueue(async (message, result) => {
                 string str = await message.Content.ReadAsStringAsync();
                 
                 try {
                     var xml = XDocument.Parse(str);
-                    action(xml);
+                    action(xml, result);
                     return true;
                 }
                 catch {
@@ -237,10 +237,10 @@ namespace JoshuaKearney.HttpHelper {
         /// </summary>
         /// <param name="action">An action that is invoked with content's type and data</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader UseContent(Action<MediaType, byte[]> action) {
-            this.funcs.Enqueue(async message => {
+        public HttpResponseReader<T> UseContent(Action<MediaType, byte[], T> action) {
+            this.funcs.Enqueue(async (message, result) => {
                 var bytes = await message.Content.ReadAsByteArrayAsync();
-                action(MediaType.FromHeaderValue(message.Content.Headers.ContentType), bytes);
+                action(MediaType.FromHeaderValue(message.Content.Headers.ContentType), bytes, result);
                 return true;
             });
 
@@ -253,8 +253,8 @@ namespace JoshuaKearney.HttpHelper {
         ///     Automatically decompresses the current message's content if encoded with the Brotli compression algorithm
         /// </summary>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader UseBrotliDecompression() {
-            this.funcs.Enqueue(async message => {
+        public HttpResponseReader<T> UseBrotliDecompression() {
+            this.funcs.Enqueue(async (message, _) => {
                 if (message.Content.Headers.ContentEncoding.FirstOrDefault() == "br") {
                     byte[] raw = await message.Content.ReadAsByteArrayAsync();
                     byte[] decompressed = Brotli.DecompressBuffer(raw, 0, raw.Length);
@@ -278,8 +278,8 @@ namespace JoshuaKearney.HttpHelper {
         ///     Automatically decompresses the current message's content if encoded with the brotli Gzip algorithm
         /// </summary>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader UseGzipDecompression() {
-            this.funcs.Enqueue(async message => {
+        public HttpResponseReader<T> UseGzipDecompression() {
+            this.funcs.Enqueue(async (message, _) => {
                 if (message.Content.Headers.ContentEncoding.FirstOrDefault() == "gzip") {
                     MemoryStream decompressed = new MemoryStream();
 
@@ -310,8 +310,8 @@ namespace JoshuaKearney.HttpHelper {
         ///     Automatically decompresses the current message's content if encoded with the Deflate compression algorithm
         /// </summary>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader UseDeflateDecompression() {
-            this.funcs.Enqueue(async message => {
+        public HttpResponseReader<T> UseDeflateDecompression() {
+            this.funcs.Enqueue(async (message, _) => {
                 if (message.Content.Headers.ContentEncoding.FirstOrDefault() == "deflate") {
                     MemoryStream decompressed = new MemoryStream();
 
@@ -346,9 +346,9 @@ namespace JoshuaKearney.HttpHelper {
         /// </summary>
         /// <param name="action">An action that is invoked with the message's status code</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader UseResponseCode(Action<HttpStatusCode> action) {
-            this.funcs.Enqueue(message => {
-                action(message.StatusCode);
+        public HttpResponseReader<T> UseResponseCode(Action<HttpStatusCode, T> action) {
+            this.funcs.Enqueue((message, result) => {
+                action(message.StatusCode, result);
                 return Task.FromResult(true);
             });
 
@@ -360,9 +360,9 @@ namespace JoshuaKearney.HttpHelper {
         /// </summary>
         /// <param name="action">An action that is invoked with the message's reason phrase</param>
         /// <returns>This <see cref="HttpResponseReader"/></returns>
-        public HttpResponseReader UseReasonPhrase(Action<string> action) {
-            this.funcs.Enqueue(message => {
-                action(message.ReasonPhrase);
+        public HttpResponseReader<T> UseReasonPhrase(Action<string, T> action) {
+            this.funcs.Enqueue((message, result) => {
+                action(message.ReasonPhrase, result);
                 return Task.FromResult(true);
             });
 
@@ -378,11 +378,11 @@ namespace JoshuaKearney.HttpHelper {
         ///     Indicates whether or not all message reading should stop if one rule fails. 
         /// </param>
         /// <returns>A boolean indicating whether or not all rules were successfully applied to the message</returns>
-        public async Task<bool> TryReadMessageAsync(HttpResponseMessage message, bool shortCircuit = true) {
+        public async Task<bool> TryReadMessageAsync(HttpResponseMessage message, T result, bool shortCircuit = true) {
             bool success = true;
 
             while (this.funcs.Count > 0) {
-                success &= await this.funcs.Dequeue()(message);
+                success &= await this.funcs.Dequeue()(message, result);
 
                 if (!success && shortCircuit) {
                     break;
