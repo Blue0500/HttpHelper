@@ -19,30 +19,37 @@ IDictionary<string, string> parameters = type.Parameters;
 ````
 
 ### HttpResponseReader
-`HttpResponseReader` is designed to enable easy and quick processing of a `HttpResponseMessage` from an `HttpClient`. The class works by building a series of functions that first determine if a particular piece of data is present in a message, invoking a callback, and then signaling whether or not message processing should continue.
+`HttpResponseReader` is designed to enable easy and quick processing of a `HttpResponseMessage` from an `HttpClient`. The class works by building a series of functions that first determine if a particular piece of data is present in a message, invoking a callback, and then signaling whether or not message processing should continue. When you read a message, you also provide a result object that gets built as the message is read.
 
-To use the `HttpResponseReader`, first set up an `HttpClient` and get a response
+So before we get into the reader itself, we must define a result object that will hold all of the useful data from our message
+public class MessageResult {
+    public string Html { get; set; }
+    public int Code { get; set; }
+}
+As you can see, we will be retrieving the html content and the response code
+
+Now we must set up our `HttpClient` and get a response
 ````
 HttpClient client = new HttpClient();
 HttpResponseMessage response = await client.GetAsync("https://github.com");
 ````
 
-Next, create an `HttpResponseReader` and define what pieces of data should be present. The example below will look for `text/html` content and print the status code
+Next, create an `HttpResponseReader` and define what pieces of data should be present. The example below will look for `text/html` content and print the status code. The generic argument of `MessageResult` indicates what the useful data will be stored in.
 ````
-HttpResponseReader reader = new HttpResponseReader();
+var reader = new HttpResponseReader<MessageResult>();
 
-string html = null;
-int code = 0;
-
-reader.EnsureHtmlContent(x => html = x);
-reader.UseResponseCode(x => code = (int)x);
+reader.EnsureHtmlContent((string html, MessageResult result) => result.Html = html);
+reader.UseResponseCode((HttpStatusCode code, MessageResult result) => result.Code = (int)code);
+// The types in the lambda are included for clarity but can be omitted
 ````
 
 Now all that is left is reading the message! If the message contained the required data, `TryReadMessageAsync` will return true, and false otherwise.
 ````
-if (await reader.TryReadMessageAsync(response)) {
-    Console.WriteLine(html);
-    Console.WriteLine("Status code: " + code);
+
+var result = new MessageResult();
+if (await reader.TryReadMessageAsync(response, result)) {
+    Console.WriteLine(result.Html);
+    Console.WriteLine("Status code: " + result.Code);
 }
 ````
 
