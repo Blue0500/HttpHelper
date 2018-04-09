@@ -5,7 +5,7 @@ HttpHelper is a simple library designed to make using `System.Net.Http` simpler 
 ### MediaType
 `MediaType` is a simple class desgined for working with... (you guessed it) web media types such as `text/html` or `application/json`. It's a pretty simple and straightforward class.
 
-````
+````C#
 MediaType type = new MediaType("application", "xml");
 type = MediaType.Json;
 
@@ -29,13 +29,13 @@ public class MessageResult {
 As you can see, we will be retrieving the html content and the response code
 
 Now we must set up our `HttpClient` and get a response
-````
+````C#
 HttpClient client = new HttpClient();
 HttpResponseMessage response = await client.GetAsync("https://github.com");
 ````
 
 Next, create an `HttpResponseReader` and define what pieces of data should be present. The example below will look for `text/html` content and print the status code. The generic argument of `MessageResult` indicates what the useful data will be stored in.
-````
+````C#
 var reader = new HttpResponseReader<MessageResult>();
 
 reader.EnsureHtmlContent((string html, MessageResult result) => result.Html = html);
@@ -44,7 +44,7 @@ reader.UseResponseCode((HttpStatusCode code, MessageResult result) => result.Cod
 ````
 
 Now all that is left is reading the message! If the message contained the required data, `TryReadMessageAsync` will return true, and false otherwise.
-````
+````C#
 
 var result = new MessageResult();
 if (await reader.TryReadMessageAsync(response, result)) {
